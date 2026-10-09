@@ -34,6 +34,21 @@ def _startup() -> None:
     library.init()
 
 
+@app.middleware("http")
+async def _no_cache_frontend(request: Any, call_next: Any) -> Response:
+    """Frontend assets must revalidate on every load.
+
+    This app is edited in place and the browser is refreshed to see changes;
+    with default caching a stale style.css/app.js silently keeps the old
+    behaviour alive (and looks exactly like a bug that "didn't get fixed").
+    Page images keep their own long max-age and are unaffected.
+    """
+    response = await call_next(request)
+    if request.url.path.startswith("/static") or request.url.path == "/":
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
+
 # --------------------------------------------------------------------------- models
 
 
@@ -296,7 +311,19 @@ async def open_result_stream(hit: Dict[str, Any] = Body(...)) -> StreamingRespon
 
 @app.get("/api/papers/{paper_id}/cover.png")
 async def cover(paper_id: str) -> Response:
+    """Thumbnail, generated on first request.
+
+    Papers arrive by several routes (local import, upload, search download) and
+    not all of them render a cover up front, so generate lazily here rather
+    than relying on every import path remembering to.
+    """
+    paper = _paper_or_404(paper_id)
     p = library.paper_dir(paper_id) / "cover.png"
+    if not p.exists():
+        path = Path(paper.get("path") or "")
+        if not path.exists():
+            return Response(status_code=404)
+        _make_cover(paper_id, path)
     if not p.exists():
         return Response(status_code=404)
     return FileResponse(str(p), media_type="image/png")

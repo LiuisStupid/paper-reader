@@ -40,6 +40,13 @@ python3 agent/boot.py --check         # 只检测不启动
   不能 `innerHTML = ''`（会连带删掉它，后续 `?.classList` 读到 null）。
 - **`#home section` 的 max-width 限定在首页**：`#viewerPane` / `#chatPane` 也是
   `<section>`，全局规则会让两侧全屏时只占 1180px。
+- **`body` 必须是 `display: flex; flex-direction: column`**，且 `#home` / `#reader` /
+  `#viewerPane` / `#chatPane` / `#pageScroll` / `.chat-log` 都要带 `min-height: 0`。
+  少了任何一条，阅读器会按内容撑到几万像素高（实测 19216px）：页面区不再是滚动容器
+  （翻页失效），对话输入框被顶到视口外。flex 子项默认 `min-height: auto`，光有
+  `flex: 1` 压不下去。改布局后**必须**跑 `verify.js` 的布局断言，别只看截图。
+- **`/static` 带 `Cache-Control: no-cache`**：前端改完刷新即生效。否则浏览器会给旧的
+  `app.js`/`style.css`，表现得和「改了没生效」一模一样。
 - 页面翻译有**两级并发**：页内 6 路（`translate.py:CONCURRENCY`），页间 2 页
   （`app.js:TRANSLATE_CONCURRENCY` + 队列）。自动翻译随滚动触发，必须受页间闸门约束。
 

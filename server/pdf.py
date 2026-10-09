@@ -30,6 +30,12 @@ _lock = threading.Lock()
 # Blocks that are almost certainly furniture rather than prose.
 _NUMERIC_RE = re.compile(r"^[\d\s\.\-–—/:]+$")
 _JUNK_RE = re.compile(r"^(arxiv|preprint|doi|https?://|www\.)", re.I)
+# Control chars and the private-use area show up when a font's encoding is
+# broken -- typical for the rotated "arXiv:xxxx.xxxxx [cs.LG] 8 Jan 2026"
+# margin stamp, which extracts as e.g. '\x0fÀGG2) \x12O%G'.
+_BAD_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ue000-\uf8ff]")
+# Below this point size nothing is prose (footnotes are ~7pt).
+_MIN_PROSE_SIZE = 4.5
 
 
 class PDFError(RuntimeError):
@@ -214,7 +220,8 @@ def _blocks(page: "fitz.Page") -> List[Dict[str, Any]]:
     for item in _merge_paragraphs(spans):
         text = " ".join(l["text"] for l in item["lines"]).strip()
         text = re.sub(r"\s+", " ", text)
-        if _is_junk(text):
+        size = max(l["size"] for l in item["lines"])
+        if _is_junk(text, size=size):
             continue
         x0, y0, x1, y1 = item["bbox"]
         blocks.append(
@@ -261,9 +268,13 @@ def _merge_paragraphs(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return merged
 
 
-def _is_junk(text: str) -> bool:
+def _is_junk(text: str, size: Optional[float] = None) -> bool:
     stripped = text.strip()
     if len(stripped) < 3:
+        return True
+    if _BAD_CHARS_RE.search(stripped):
+        return True
+    if size is not None and size < _MIN_PROSE_SIZE:
         return True
     if _NUMERIC_RE.match(stripped):
         return True

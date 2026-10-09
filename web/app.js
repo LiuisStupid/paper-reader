@@ -18,6 +18,7 @@ const state = {
   layout: new Map(),      // page -> layout response
   selection: '',
   focus: null,            // null | 'left' | 'right'
+  fitMode: 'width',       // width | page
   streaming: false,
   models: [],
 };
@@ -420,11 +421,33 @@ function buildPageShells() {
   });
 }
 
+/** fitScale = 每个 PDF 点对应多少 CSS 像素。两种取景方式：
+ *  width → 铺满栏宽（默认，字大，需要纵向滚动）
+ *  page  → 整页塞进可视区（一屏看全，字小） */
 function computeFit() {
   const scroll = $('#pageScroll');
-  const avail = scroll.clientWidth - 44;
+  const availW = Math.max(120, scroll.clientWidth - 44);
+  const availH = Math.max(120, scroll.clientHeight - 44);
   const maxW = Math.max(...state.pageSizes.map((s) => s.w), 1);
-  state.fitScale = Math.min(avail / maxW, 2.2);
+  const maxH = Math.max(...state.pageSizes.map((s) => s.h), 1);
+  state.fitScale = state.fitMode === 'page'
+    ? Math.min(availW / maxW, availH / maxH)
+    : Math.min(availW / maxW, 2.2);
+}
+
+function applyFitModeUI() {
+  const page = state.fitMode === 'page';
+  $('#fitWidthBtn').style.color = page ? '' : 'var(--accent)';
+  $('#fitPageBtn').style.color = page ? 'var(--accent)' : '';
+}
+
+function setFitMode(mode) {
+  state.fitMode = mode;
+  localStorage.setItem('pr-fit-mode', mode);
+  applyFitModeUI();
+  state.zoom = 1;
+  $('#zoomLabel').textContent = '100%';
+  if (state.paper) { computeFit(); drawAllPages(); }
 }
 
 function currentScale() { return state.fitScale * state.zoom; }
@@ -1142,7 +1165,8 @@ function bind() {
   });
   $('#zoomInBtn').addEventListener('click', () => setZoom(state.zoom * 1.2));
   $('#zoomOutBtn').addEventListener('click', () => setZoom(state.zoom / 1.2));
-  $('#fitBtn').addEventListener('click', () => setZoom(1));
+  $('#fitWidthBtn').addEventListener('click', () => setFitMode('width'));
+  $('#fitPageBtn').addEventListener('click', () => setFitMode('page'));
   $('#focusLeftBtn').addEventListener('click', () => setFocus('left'));
   $('#focusRightBtn').addEventListener('click', () => setFocus('right'));
   $('#langToggle').addEventListener('click', (e) => {
@@ -1217,9 +1241,11 @@ function setZoom(zoom) {
 /* ══════════════════════════ 启动 ══════════════════════════ */
 
 (function init() {
+  state.currentPage = 0;
+  state.fitMode = localStorage.getItem('pr-fit-mode') === 'page' ? 'page' : 'width';
+  applyFitModeUI();
   bind();
   initSplitter();
   loadHealth();
   loadHistory();
-  state.currentPage = 0;
 })();
