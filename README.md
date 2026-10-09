@@ -15,15 +15,19 @@
 python3 agent/boot.py
 ```
 
-不需要手动建虚拟环境、不需要 `pip install`、不需要改配置、不需要第二条命令。
+不需要建虚拟环境、不需要手动 `pip install`、不需要改配置、不需要第二条命令。
 `agent` 会按顺序做四件事：
 
 | 步骤 | 做什么 | 失败时 |
 | --- | --- | --- |
-| 1 | 找到/创建 `.venv` 并切换解释器 | 打印手动创建命令 |
-| 2 | 检查 `requirements.txt`，缺什么装什么（依次尝试阿里云 → 清华 → 官方源） | 报错并指出缺哪个包 |
+| 1 | 检查 Python ≥ 3.9 与 pip 是否可用 | 打印装 pip 的命令 |
+| 2 | 检查 `requirements.txt`，缺什么装什么（`pip install --user`，依次尝试阿里云 → 清华 → 官方源） | 报错并指出缺哪个包 |
 | 3 | **真连一次**大模型接口来探测可用配置，写入 `data/settings.json` | 不阻断启动，阅读/检索仍可用，界面里再配 |
 | 4 | 选空闲端口启动服务并打开浏览器 | — |
+
+依赖就装在你跑脚本的那个解释器里（非虚拟环境时加 `--user`，落在
+`~/Library/Python/3.x/lib/python/site-packages`，不碰系统目录、不需要 sudo）。
+要卸掉：`python3 -m pip uninstall fastapi uvicorn httpx PyMuPDF python-multipart`。
 
 常用参数：`--port 8765`、`--host`、`--no-browser`、`--check`（只检测不启动）、`--recheck-api`。
 

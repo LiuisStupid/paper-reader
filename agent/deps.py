@@ -1,9 +1,13 @@
 """Dependency detection + installation.
 
-Runs before anything else, so it may only use the standard library. Given a
-bare Python 3.8+ interpreter it can create the virtualenv, install everything
-in requirements.txt and re-exec into the venv -- which is what makes the
-reader startable with a single command on a fresh machine.
+Runs before anything else, so it may only use the standard library.
+
+这里刻意**不建虚拟环境**：依赖只有 5 个，直接装进「正在跑这个脚本的解释器」即可。
+非 venv 的解释器一律加 `--user`，装到用户目录而不是系统 site-packages，
+所以既不需要 sudo，也不会污染 Homebrew / 发行版自带的 Python。
+
+这样 `python3 agent/boot.py` 就真的是唯一一条命令；多一层 venv 只会多一个
+要解释、要清理、还要在文档里写两遍的解释器。
 """
 from __future__ import annotations
 
@@ -11,13 +15,13 @@ import importlib.util
 import os
 import subprocess
 import sys
-import venv
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
-VENV_DIR = ROOT / ".venv"
 REQUIREMENTS = ROOT / "requirements.txt"
+
+MIN_PYTHON = (3, 9)
 
 # import name -> (pip name, what it is for)
 REQUIRED = [
@@ -37,18 +41,9 @@ MIRRORS = [
 ]
 
 
-def venv_python() -> Path:
-    if os.name == "nt":
-        return VENV_DIR / "Scripts" / "python.exe"
-    return VENV_DIR / "bin" / "python"
-
-
 def in_venv() -> bool:
-    """True when the *running* interpreter is this project's venv."""
-    try:
-        return Path(sys.executable).resolve() == venv_python().resolve()
-    except OSError:
-        return False
+    """True when the *running* interpreter lives inside a virtualenv."""
+    return sys.prefix != getattr(sys, "base_prefix", sys.prefix)
 
 
 def missing() -> List[Tuple[str, str, str]]:
@@ -59,59 +54,104 @@ def missing() -> List[Tuple[str, str, str]]:
     return out
 
 
-def create_venv() -> bool:
-    if venv_python().exists():
+def _ensure_pip() -> bool:
+    """Make sure `python -m pip` works; bootstrap it with ensurepip if not."""
+    if importlib.util.find_spec("pip") is not None:
         return True
-    print("· 未找到虚拟环境，正在创建 .venv ...", flush=True)
+    cmd = [sys.executable, "-m", "ensurepip", "--upgrade"]
+    if not in_venv():
+        cmd.append("--user")
     try:
-        venv.EnvBuilder(with_pip=True, upgrade_deps=False).create(str(VENV_DIR))
-    except Exception as exc:  # noqa: BLE001
-        print("✗ 创建虚拟环境失败：%s" % exc)
-        print("  请手动执行： python3 -m venv %s" % VENV_DIR)
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:  # noqa: BLE001
         return False
-    return venv_python().exists()
+    importlib.invalidate_caches()
+    return importlib.util.find_spec("pip") is not None
 
 
-def reexec_in_venv(argv: Optional[List[str]] = None) -> None:
-    """Replace the current process with the venv's interpreter."""
-    args = [str(venv_python())] + (argv if argv is not None else sys.argv)
-    os.execv(str(venv_python()), args)
+def check_interpreter() -> Tuple[bool, str]:
+    """Version + pip sanity check. Returns (ok, message-to-print)."""
+    if sys.version_info < MIN_PYTHON:
+        return False, "需要 Python %d.%d 以上，当前是 %d.%d.%d" % (
+            MIN_PYTHON[0], MIN_PYTHON[1], *sys.version_info[:3]
+        )
+    if not _ensure_pip():
+        return False, "这个 Python 里没有 pip，自动安装也没成功（可手动执行：python3 -m ensurepip --user）"
+    where = "虚拟环境" if in_venv() else "系统 Python"
+    return True, "%s（%s，Python %d.%d.%d）" % (
+        sys.executable, where, *sys.version_info[:3]
+    )
 
 
-def _pip(args: List[str], index: Optional[str]) -> int:
-    cmd = [str(venv_python()), "-m", "pip", "install", "--disable-pip-version-check"] + args
+def _pip(args: List[str], index: Optional[str], flags: List[str]) -> Tuple[int, str]:
+    """Run pip, returning (exit code, combined output)."""
+    cmd = [
+        sys.executable, "-m", "pip", "install",
+        "--disable-pip-version-check", "--progress-bar", "off",
+    ] + flags + args
     if index:
-        cmd += ["-i", index, "--trusted-host", index.split("//", 1)[-1].split("/", 1)[0]]
-    env = dict(os.environ, PIP_PROGRESS_BAR="off")
-    return subprocess.call(cmd, env=env)
+        host = index.split("//", 1)[-1].split("/", 1)[0]
+        cmd += ["-i", index, "--trusted-host", host]
+    env = dict(os.environ, PIP_PROGRESS_BAR="off", PIP_DISABLE_PIP_VERSION_CHECK="1")
+    try:
+        proc = subprocess.run(
+            cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+    except Exception as exc:  # noqa: BLE001
+        return 1, str(exc)
+    return proc.returncode, proc.stdout or ""
+
+
+def _tail(output: str, lines: int = 12) -> str:
+    kept = [ln for ln in output.strip().splitlines() if ln.strip()][-lines:]
+    return "\n".join(kept)
 
 
 def install_requirements(verbose: bool = True) -> bool:
     if not REQUIREMENTS.exists():
         print("✗ 缺少 requirements.txt")
         return False
+    if not _ensure_pip():
+        print("✗ 当前解释器没有 pip")
+        return False
+
     override = os.environ.get("PAPER_READER_PIP_INDEX")
     mirrors = [override] if override else MIRRORS
+    # 装到用户目录，不碰系统 site-packages（也顺带避开大部分权限问题）。
+    flags = [] if in_venv() else ["--user"]
+
+    last_output = ""
     for index in mirrors:
         label = index or "PyPI 官方源"
         if verbose:
             print("· 正在通过 %s 安装依赖 ..." % label, flush=True)
-        code = _pip(["-q", "-r", str(REQUIREMENTS)], index)
+        code, output = _pip(["-r", str(REQUIREMENTS)], index, flags)
         if code == 0:
             return True
+        last_output = output
+
+        # PEP 668：新版 pip 会直接拒绝往发行版 / Homebrew 自带的 Python 里装。
+        # 上面已经用 --user 避开了系统目录，这里只是让 pip 放行。
+        if "externally-managed" in output and "--break-system-packages" not in flags:
+            if verbose:
+                print("  ↳ 该 Python 受 PEP 668 保护，改用 --user --break-system-packages 重试")
+            flags = flags + ["--break-system-packages"]
+            code, output = _pip(["-r", str(REQUIREMENTS)], index, flags)
+            if code == 0:
+                return True
+            last_output = output
+
         if verbose:
-            print("  ↳ %s 失败，尝试下一个源" % label)
+            reason = _tail(output, 1)
+            print("  ↳ %s 失败%s，尝试下一个源" % (label, ("：" + reason) if reason else ""))
+
+    if last_output:
+        print(_tail(last_output))
     return False
 
 
 def preflight(verbose: bool = True) -> Tuple[bool, str]:
     """Full dependency story. Returns (ok, message)."""
-    if not in_venv() and not venv_python().exists():
-        if not create_venv():
-            return False, "虚拟环境创建失败"
-    if not in_venv():
-        return False, "需要切换到虚拟环境（内部使用）"
-
     gone = missing()
     if not gone:
         return True, "依赖完整"

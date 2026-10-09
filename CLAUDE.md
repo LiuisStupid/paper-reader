@@ -6,10 +6,15 @@
 ## 启动 / 验证
 
 ```bash
-python3 agent/boot.py                 # 唯一入口；自动建 venv、装依赖、探 API、开浏览器
+python3 agent/boot.py                 # 唯一入口；查 Python/pip、装依赖、探 API、开浏览器
 python3 agent/boot.py --check         # 只检测不启动
-./.venv/bin/python agent/boot.py --no-browser --port 8765   # 已在 venv 里时可直接跑
+python3 agent/boot.py --no-browser --port 8765   # 依赖已装好、不想再探测 API 时
 ```
+
+**不建虚拟环境**：依赖直接装进跑脚本的那个解释器（非 venv 时 `pip install --user`，
+落用户目录、不需要 sudo）。别把 venv 逻辑加回 `deps.py`，也别在文档里写
+`.venv/bin/python`。注意本机 `which python3` 可能命中别的项目的 venv，怀疑装错地方时
+看 boot 第 1 步打印的解释器路径。
 
 改完后端重启即可；前端是原生 JS，刷新浏览器就行（无构建步骤）。
 

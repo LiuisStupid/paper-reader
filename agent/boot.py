@@ -3,8 +3,8 @@
 
 它把通常写进 README 的那串「getting started」步骤全部接管了：
 
-  1. 检查/创建虚拟环境
-  2. 检查/安装 requirements.txt 里的依赖
+  1. 检查 Python 版本与 pip
+  2. 检查/安装 requirements.txt 里的依赖（直接装进当前解释器，不建 venv）
   3. 探测可用的大模型 API（环境变量 → Claude CLI 配置 → 本地运行时）
   4. 启动服务并在浏览器中打开
 
@@ -192,17 +192,13 @@ def main(argv: list = None) -> int:
     say("%s%s│   Paper Reader · 论文阅读器 启动 agent   │%s" % (BOLD, GREEN, RESET))
     say("%s%s╰──────────────────────────────────────────╯%s" % (BOLD, GREEN, RESET))
 
-    # -- 1. venv ------------------------------------------------------------
+    # -- 1. interpreter ------------------------------------------------------
     step(1, 4, "检查运行环境")
-    if not deps.venv_python().exists():
-        if not deps.create_venv():
-            return 1
-    if not deps.in_venv():
-        # Hand the rest of the work to the venv interpreter.
-        say("· 切换到虚拟环境解释器 ...")
-        deps.reexec_in_venv([str(Path(__file__).resolve())] + sys.argv[1:])
-        return 0  # not reached
-    say("· 解释器：%s" % sys.executable)
+    ok, message = deps.check_interpreter()
+    if not ok:
+        say("%s✗ %s%s" % (RED, message, RESET))
+        return 1
+    say("· 解释器：%s" % message)
 
     # -- 2. dependencies ----------------------------------------------------
     step(2, 4, "检查并安装依赖")
@@ -210,7 +206,7 @@ def main(argv: list = None) -> int:
     if not ok:
         say("%s✗ %s%s" % (RED, message, RESET))
         return 1
-    say("· %s%s" % (message, ""))
+    say("· %s" % message)
 
     # -- 3. LLM api ---------------------------------------------------------
     step(3, 4, "探测大模型 API")
