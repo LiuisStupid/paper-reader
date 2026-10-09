@@ -34,8 +34,20 @@ python3 agent/boot.py --check         # 只检测不启动
   缩放时必须同时重建文本层和译文层（`app.js:drawAllPages`）。
 - **选区取文本用 `range.intersectsNode()`，不要用 `cloneContents()`**：克隆出的
   fragment 不含 `.text-layer` 祖先，选择器会全部落空，退化成没有空格的字符串。
+- **选区不做浮动菜单，只镜像到右侧 `#selectionBar`**（第几页 / 多少行 / 多少字 +
+  原文）。选区是上下文不是命令 —— `selectionchange` 只在「非空 + 落在 `#pageStack`
+  内」时更新面板，**收起选区时不要清空**（否则「选完挪一下鼠标再打字」会丢引用）；
+  面板只在发出一条提问、点 ✕、或换论文时清掉。原文模式读词级 span（按行计），译文
+  模式读 `.block-zh`（按段计），跨页选区的键要带页码，否则两页的同号 block 会并成
+  一段。`readSelection()` 必须**在 `selectionchange` 里立刻读完**、只把渲染交给防抖：
+  等定时器再读就晚了，那 120ms 里选区可能被懒加载页面的文本层重建打散。
+- **`readSelection()` 只扫选区两端之间的页**（`indexOf` 取 stack 下标）。全量扫
+  `#pageStack` 随已渲染页数线性变贵（实测 4069 个 span → 4.66ms/次），而
+  `selectionchange` 在拖拽期间会连续触发。
 - **原文模式下 `.trans-layer` 必须 `display: none`**。它 z-index 高于文本层，
-  只关 `pointer-events` 会让白底译文块把英文正文整个盖住。
+  只关 `pointer-events` 会让白底译文块把英文正文整个盖住。副作用是
+  `intersectsNode()` 对 `display:none` 的节点退化成按 DOM 顺序比较（没有布局就没有
+  位置），所以译文分支要另加 `state.lang === 'zh'` 判断兜住。
 - **`#chatEmpty` 是 `#chatLog` 的子元素**，清空对话要用 `clearChatLog()` 删 `.msg`，
   不能 `innerHTML = ''`（会连带删掉它，后续 `?.classList` 读到 null）。
 - **`#home section` 的 max-width 限定在首页**：`#viewerPane` / `#chatPane` 也是

@@ -290,22 +290,12 @@ button { cursor: pointer; background: none; border: none; }
 /* 译文模式下，可选中性交给译文层 */
 .page.tr-mode .text-layer { pointer-events: none; }
 
-/* 选中浮动菜单 */
-.sel-menu {
-  position: fixed; z-index: 60; display: flex; gap: 2px; padding: 4px;
-  background: var(--panel-2); border: 1px solid var(--border-2); border-radius: 8px;
-  box-shadow: var(--shadow);
-}
-.sel-menu button { padding: 5px 10px; border-radius: 5px; font-size: 12.5px; color: var(--text); white-space: nowrap; }
-.sel-menu button:hover { background: var(--accent); color: #fff; }
-
 /* ─────────────────────────── 对话区 ─────────────────────────── */
 
 .chat-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 18px 18px 6px; display: flex; flex-direction: column; gap: 16px; }
 .chat-empty { color: var(--muted); font-size: 13.3px; margin: auto 0; text-align: center; padding: 20px 10px; }
 .chat-empty p { max-width: 380px; margin: 0 auto 16px; }
-.quick-row, .quote-actions { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; }
-.quote-actions { justify-content: flex-start; }
+.quick-row { display: flex; flex-wrap: wrap; gap: 7px; justify-content: center; }
 
 .chip {
   padding: 5px 11px; border-radius: 16px; border: 1px solid var(--border-2);
@@ -364,12 +354,34 @@ button { cursor: pointer; background: none; border: none; }
 .cursor-blink::after { content: "▍"; color: var(--accent); animation: blink 1s step-end infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
-.quote-bar {
-  margin: 0 14px 8px; padding: 9px 11px; border: 1px solid var(--accent); border-radius: 9px;
-  background: var(--accent-dim); display: flex; flex-direction: column; gap: 7px;
+/* 论文选区镜像面板：左侧选了什么，这里就显示什么。
+   它是「上下文指示器」而不是动作菜单 —— 没有解释/翻译按钮，选中之后问不问、
+   问什么，由用户在下面的输入框里自己决定。 */
+.sel-bar {
+  flex: 0 0 auto; margin: 0 14px 8px; padding: 9px 11px;
+  border: 1px solid var(--border-2); border-left: 3px solid var(--accent);
+  border-radius: 4px 9px 9px 4px; background: rgba(217,119,87,.06);
+  display: flex; flex-direction: column; gap: 6px;
 }
-.quote-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--accent); font-weight: 600; }
-.quote-text { font-size: 12.4px; color: var(--muted); max-height: 92px; overflow-y: auto; white-space: pre-wrap; }
+.sel-bar-head { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.sel-bar-title { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.sel-meta { flex: 1; color: var(--muted-2); display: flex; align-items: center; gap: 6px; }
+.sel-meta .sel-dot { color: var(--border-2); }
+/* 页码可点：跳回选区所在的那一页 */
+.sel-jump {
+  padding: 0; font-size: 12px; color: var(--accent-2);
+  border-bottom: 1px dashed rgba(232,146,111,.5);
+}
+.sel-jump:hover { color: var(--accent); }
+.sel-text {
+  font-size: 12.4px; color: var(--muted); white-space: pre-wrap;
+  max-height: 92px; overflow-y: auto; word-break: break-word;
+}
+.sel-text.clampable { cursor: zoom-in; }
+.sel-text.clampable::after { content: " ⌄ 点击展开"; font-size: 11px; color: var(--muted-2); }
+.sel-text.expanded { max-height: 360px; cursor: zoom-out; }
+.sel-text.expanded::after { content: " ⌃ 收起"; font-size: 11px; color: var(--muted-2); }
+.sel-bar-foot { font-size: 11.4px; color: var(--muted-2); }
 
 .composer { flex: 0 0 auto; display: flex; gap: 9px; padding: 10px 14px 14px; align-items: flex-end; }
 .composer textarea {

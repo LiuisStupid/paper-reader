@@ -128,7 +128,7 @@
 
     <div id="chatLog" class="chat-log">
       <div class="chat-empty" id="chatEmpty">
-        <p>选中左侧论文中的任意文字，即可针对它提问；也可以直接在下方输入问题。</p>
+        <p>在左侧论文里选中任意文字，这里会显示选中了哪一页、多少行；选中内容会自动附在你接下来的提问上。也可以直接在下方输入问题。</p>
         <div class="quick-row">
           <button class="chip" data-q="这篇论文要解决什么问题？主要贡献是什么？">这篇论文解决了什么问题？</button>
           <button class="chip" data-q="请总结当前这一页的核心内容。">总结当前页</button>
@@ -138,18 +138,16 @@
       </div>
     </div>
 
-    <div id="quoteBar" class="quote-bar hidden">
-      <div class="quote-head">
-        <span>已引用选中内容</span>
-        <button id="quoteClear" class="icon-btn" title="取消引用">✕</button>
+    <!-- 左侧论文选区的镜像：显示选中的是哪一页、多少行、多少字，以及原文。
+         刻意不放「解释 / 翻译」这类动作按钮 —— 选中只是上下文，问不问由你决定。 -->
+    <div id="selectionBar" class="sel-bar hidden">
+      <div class="sel-bar-head">
+        <span class="sel-bar-title">论文选区</span>
+        <span id="selMeta" class="sel-meta"></span>
+        <button id="selClear" class="icon-btn" title="取消引用">✕</button>
       </div>
-      <div id="quoteText" class="quote-text"></div>
-      <div class="quote-actions">
-        <button class="chip small" data-q="这一段数据表示什么？">这一段数据表示什么？</button>
-        <button class="chip small" data-q="请解释这段内容的含义，并说明它在论文中的作用。">解释这段</button>
-        <button class="chip small" data-q="请把这段内容翻译成通顺的中文。">翻译这段</button>
-        <button class="chip small" data-q="这段内容和论文的核心论点有什么关系？">与主旨的关系</button>
-      </div>
+      <div id="selText" class="sel-text"></div>
+      <div class="sel-bar-foot">会随下一条提问一起发送</div>
     </div>
 
     <div class="composer">
@@ -157,13 +155,6 @@
       <button id="sendBtn" class="btn primary send">发送</button>
     </div>
   </section>
-</div>
-
-<!-- ══════════════════════════════ 选中浮动菜单 ══════════════════════════════ -->
-<div id="selectionMenu" class="sel-menu hidden">
-  <button data-act="explain">解释这段</button>
-  <button data-act="translate">翻译这段</button>
-  <button data-act="ask">问 AI…</button>
 </div>
 
 <!-- ══════════════════════════════ 设置弹窗 ══════════════════════════════ -->
