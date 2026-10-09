@@ -2,7 +2,14 @@
 
 左论文、右 AI 的双栏阅读器：本地 PDF / arXiv 检索 → 中英对照阅读 → 选中即问。
 
-**启动只要一条命令**，环境检测、依赖安装、大模型探测、开浏览器全部由内置 agent 完成：
+![截图](docs/screenshot.jpg)
+
+左侧是服务端渲染的页面，叠了一层逐词对齐的透明文本层，所以可以像原生 PDF 一样拖动
+选中；右侧是对话区，选中的文字会作为引用进到提问里。
+
+---
+
+## 快速开始
 
 ```bash
 python3 agent/boot.py
@@ -18,7 +25,19 @@ python3 agent/boot.py
 | 3 | **真连一次**大模型接口来探测可用配置，写入 `data/settings.json` | 不阻断启动，阅读/检索仍可用，界面里再配 |
 | 4 | 选空闲端口启动服务并打开浏览器 | — |
 
-常用参数：`--port 8765`、`--no-browser`、`--check`（只检测不启动）、`--recheck-api`。
+常用参数：`--port 8765`、`--host`、`--no-browser`、`--check`（只检测不启动）、`--recheck-api`。
+
+---
+
+## 环境要求
+
+- **Python 3.9+**。代码刻意避开了 3.10+ 语法（不用 `X | Y`、`match`、`asyncio.TaskGroup`），
+  因为 macOS 自带的 `/usr/bin/python3` 就是 3.9.6，装个 Python 才能跑太劝退了。
+- **macOS / Linux**。Windows 未测试。
+- **一个大模型接口**，三选一即可：Anthropic 兼容网关（含 Claude Code CLI 的配置）、
+  环境变量里给好的 `ANTHROPIC_*`、或本地 ollama / vLLM。探测顺序见下节。
+
+依赖只有 5 个：FastAPI、uvicorn、httpx、PyMuPDF、python-multipart，`agent/deps.py` 会自动装。
 
 ---
 
@@ -26,9 +45,9 @@ python3 agent/boot.py
 
 **阅读**
 - 打开本地 PDF（选择文件 / 拖拽 / 粘贴绝对路径）
-- 按标题、关键词、作者检索 **arXiv** 与 **Semantic Scholar**，一键下载入库
+- 按标题、关键词、作者检索 **arXiv** 与 **Semantic Scholar**，一键下载入库（下载走 SSE 报进度）
 - 服务端渲染页面为图片，叠加逐词对齐的透明文本层 —— 可以像原生 PDF 一样**拖动选中**文字
-- 翻页（按钮 / 页码输入 / ← → / PageUp PageDown）、缩放、适应宽度
+- 翻页（按钮 / 页码输入 / ← → / PageUp PageDown）、缩放、适应宽度 / 适应整页
 - 页面尺寸在打开时一次性取回，整篇布局稳定，翻页不跳动
 - 扫描件（无文本层）会被识别并提示，不会假装能翻译
 
@@ -42,9 +61,10 @@ python3 agent/boot.py
 
 **AI 对话**
 - 普通问答：自动带上论文标题、摘要、当前页文本
-- **选中即问**：选中左侧文字 → 浮动菜单「解释这段 / 翻译这段 / 问 AI…」→ 选中内容作为引用进入对话并高亮显示
+- **选中即问**：选中左侧文字 → 浮动菜单「解释这段 / 翻译这段 / 问 AI…」→
+  选中内容作为引用进入对话并高亮显示
 - 复制选区时会把逐词文本重组成干净句子（不会得到一堆碎词）
-- 折叠思考过程、流式输出、Markdown / 表格 / 公式原文渲染
+- 折叠思考过程、流式输出、Markdown / 表格 / 代码块渲染
 - 可选「全文上下文」开关；对话历史按论文持久化
 
 **界面**
@@ -90,8 +110,11 @@ server/     FastAPI 后端
   ├ search.py     arXiv + Semantic Scholar 检索与下载
   └ library.py    SQLite 书库与对话历史
 web/        前端（原生 JS，无构建步骤）
+docs/       README 用图
 data/       运行时数据（已 gitignore）
 ```
+
+改后端重启即可；前端没有构建步骤，刷新浏览器就行。
 
 ## 接口速查
 
@@ -109,3 +132,26 @@ GET  /api/papers/{id}/pages/{n}/translate     翻译该页（SSE）
 POST /api/chat/stream                         对话（SSE）
 POST /api/papers/{id}/progress                记录阅读位置
 ```
+
+---
+
+## 安全边界
+
+这是个**本机单用户工具**，没有账号体系，请按这个前提使用：
+
+- 服务默认只监听 `127.0.0.1`，不对局域网开放。
+- **但 CORS 目前是 `allow_origins=["*"]`** —— 意味着你在浏览器里打开的**任意网页**都能
+  请求本机的这个服务：读你的书库和对话、发起对话消耗你的 token，`open-local` 甚至允许
+  把本机任意 PDF 读进书库再下载走。要在不完全信任的环境里跑，先把 `server/main.py`
+  里的 `allow_origins` 收紧成 `["http://127.0.0.1:8765"]`。
+- API key 明文存在 `data/settings.json`。`data/` 已 gitignore，**不要把它打包分享**。
+
+## 已知限制
+
+- **默认上下文是「当前页 + 摘要」，不是全文。** 问整篇性的问题（比如"这篇相比前作改了什么"）
+  时答案会受限于当前页，需要勾选对话区工具栏的「全文上下文」。关掉是为了省 token 和延迟，
+  但代价是这类问题第一次往往答不好。
+- 扫描件没有文本层，不能翻译、不能按文本检索。
+- 翻译质量取决于模型；译文按内容哈希缓存，**改翻译提示词不会让缓存失效**，要
+  `?force=true` 或删掉 `translation.json`。
+- 中文译文层没有词级坐标，所以译文里的选区只能按段落粒度对齐。
