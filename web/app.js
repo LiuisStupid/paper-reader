@@ -376,7 +376,8 @@ async function openPaper(pid) {
     $('#docTitle').title = data.paper.title || '';
     $('#pageTotal').textContent = `/ ${sizes.count}`;
     clearChatLog();
-    clearSelection();
+    $('#quoteBar').classList.add('hidden');
+    state.selection = '';
     state.count = sizes.count;
     state.pageSizes = sizes.pages;
     state.rendered = new Set();
@@ -717,172 +718,111 @@ async function translateAll() {
   for (let n = 0; n < state.count; n++) ensurePageContent(n);
 }
 
-/* ══════════════════════════ 论文选区 → 右侧镜像 ══════════════════════════
+/* ══════════════════════════ 选中 → 提问 ══════════════════════════ */
 
-   左侧选到哪里，右边就显示到哪里（哪一页 / 多少行 / 多少字 + 原文）。这里刻意
-   不做「选中即弹小菜单」：选区是上下文而不是命令，问不问、问什么，由用户在输入
-   框里自己决定。选区面板会一直留到被下一次选区替换、被清掉、或随一条提问发出。
-   ══════════════════════════════════════════════════════════════════════════ */
-
-/** 读出一个选区：干净文本 + 它覆盖了哪些页、多少行。
+/** 从选区重建干净文本：同行的词用空格连接，段落之间空行。
  *
  * 用 range.intersectsNode() 而不是 cloneContents()：克隆出来的 fragment 只保留
  * 选区本身，不含 .text-layer 祖先，选择器会一个都匹配不到（退化成没有空格的
  * 原始字符串）。逐节点判定同时天然保持了阅读顺序。
  */
-function readSelection(sel) {
+function extractSelectionText(sel) {
   const range = sel.getRangeAt(0);
-  const stack = $('#pageStack');
-  const empty = { text: '', pages: new Set(), lines: 0, unit: '行' };
-  if (!stack) return empty;
+  const scope = $('#pageStack') || document;
 
-  // 只扫选区两端所在的页（含其间的页），文档再长代价也有上限。
-  const indexOf = (node) => {
-    const el = node && (node.nodeType === 1 ? node : node.parentElement);
-    const pageEl = el && el.closest ? el.closest('.page') : null;
-    return pageEl && pageEl.parentElement === stack
-      ? Array.prototype.indexOf.call(stack.children, pageEl) : -1;
-  };
-  const a = indexOf(range.startContainer);
-  const b = indexOf(range.endContainer);
-  if (a < 0 || b < 0) return empty;
-  const scopes = [];   // [{n, el}]，n 既是页序号也是 stack 下标
-  for (let n = Math.min(a, b); n <= Math.max(a, b); n++) {
-    const el = stack.children[n];
-    if (el) scopes.push({ n, el });
-  }
+  const zhNodes = [];
+  scope.querySelectorAll('.block-zh').forEach((el) => {
+    if (!el.classList.contains('pending') && range.intersectsNode(el)) {
+      const t = el.textContent.trim();
+      if (t) zhNodes.push(t);
+    }
+  });
+  if (zhNodes.length) return zhNodes.join('\n\n');
 
-  const pages = new Set();
-
-  // 译文层优先：中文模式下 .text-layer 是 pointer-events:none，选不到词级节点。
-  // 必须带 lang 判断 —— 原文模式下 .trans-layer 是 display:none，没有布局，此时
-  // range.intersectsNode() 退化成按 DOM 顺序比较，会误判命中。
-  const zhBlocks = [];
-  if (state.lang === 'zh') {
-    scopes.forEach(({ n, el }) => {
-      el.querySelectorAll('.block-zh').forEach((b2) => {
-        if (b2.classList.contains('pending') || !range.intersectsNode(b2)) return;
-        const t = b2.textContent.trim();
-        if (t) zhBlocks.push(t);
-        pages.add(n);
-      });
-    });
-  }
-  if (zhBlocks.length) {
-    // 译文层没有词级坐标，只能按段计——所以单位是「段」而不是「行」。
-    return { text: zhBlocks.join('\n\n'), pages, lines: zhBlocks.length, unit: '段' };
-  }
-
-  const blocks = new Map();   // "页:block" -> Map(line -> words[])
-  scopes.forEach(({ n, el }) => {
-    el.querySelectorAll('.text-layer span[data-b]').forEach((s) => {
-      if (!range.intersectsNode(s)) return;
-      // 键带上页码：跨页选区里两页的第 3 个 block 不是同一个 block，不能并到一起。
-      const key = `${n}:${s.dataset.b}`;
-      if (!blocks.has(key)) blocks.set(key, new Map());
-      const lines = blocks.get(key);
-      if (!lines.has(s.dataset.l)) lines.set(s.dataset.l, []);
-      lines.get(s.dataset.l).push(s.textContent);
-      pages.add(n);
-    });
+  const blocks = new Map();   // block -> Map(line -> words[])
+  scope.querySelectorAll('.text-layer span[data-b]').forEach((s) => {
+    if (!range.intersectsNode(s)) return;
+    const b = s.dataset.b, l = s.dataset.l;
+    if (!blocks.has(b)) blocks.set(b, new Map());
+    const lines = blocks.get(b);
+    if (!lines.has(l)) lines.set(l, []);
+    lines.get(l).push(s.textContent);
   });
   if (blocks.size) {
-    let lines = 0;
-    blocks.forEach((lineMap) => { lines += lineMap.size; });
-    const text = Array.from(blocks.values()).map((lineMap) =>
-      Array.from(lineMap.values()).map((words) => words.join(' ')).join(' ')
+    return Array.from(blocks.values()).map((lines) =>
+      Array.from(lines.values()).map((words) => words.join(' ')).join(' ')
     ).join('\n\n');
-    return { text, pages, lines, unit: '行' };
   }
 
-  const fallback = sel.toString().replace(/\s*\n\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  return { text: fallback, pages, lines: 0, unit: '行' };
+  return sel.toString().replace(/\s*\n\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
 }
 
-function updateComposerHint() {
-  $('#chatInput').placeholder = state.selection
-    ? '针对选中的内容提问…（Enter 发送，Shift+Enter 换行）'
-    : '就这篇论文提问…（Enter 发送，Shift+Enter 换行）';
+const selMenu = $('#selectionMenu');
+let pendingSelection = '';
+
+function hideSelMenu() { selMenu.classList.add('hidden'); }
+
+function onMouseUp(e) {
+  if (e.target.closest('#chatPane, #selectionMenu, .modal')) return;
+  setTimeout(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return hideSelMenu();
+    const anchor = sel.anchorNode;
+    const host = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
+    if (!host || !host.closest('#pageStack')) return hideSelMenu();
+
+    const text = extractSelectionText(sel);
+    if (!text || text.trim().length < 2) return hideSelMenu();
+
+    pendingSelection = text.trim();
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const menuW = 260;
+    let left = rect.left + rect.width / 2 - menuW / 2;
+    left = Math.max(10, Math.min(left, window.innerWidth - menuW - 10));
+    let top = rect.top - 46;
+    if (top < 8) top = rect.bottom + 10;
+    selMenu.style.left = `${left}px`;
+    selMenu.style.top = `${top}px`;
+    selMenu.classList.remove('hidden');
+  }, 0);
 }
 
-function showSelection(info) {
-  state.selection = info.text;
-  const list = Array.from(info.pages).sort((a, b) => a - b);
-  const parts = [];
-  if (list.length) {
-    const label = list.length === 1
-      ? `第 ${list[0] + 1} 页`
-      : `第 ${list[0] + 1}–${list[list.length - 1] + 1} 页`;
-    parts.push(`<button class="sel-jump" data-page="${list[0]}" title="跳到这一页">${label}</button>`);
-  }
-  if (info.lines) parts.push(`${info.lines} ${info.unit}`);
-  parts.push(`${info.text.length} 字`);
-  $('#selMeta').innerHTML = parts.join('<span class="sel-dot">·</span>');
+selMenu.addEventListener('mousedown', (e) => e.preventDefault());
+selMenu.addEventListener('click', (e) => {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  hideSelMenu();
+  const text = pendingSelection;
+  if (!text) return;
+  setQuote(text);
+  if (act === 'explain') sendMessage('请解释这段内容的含义，并说明它在论文中的作用。');
+  else if (act === 'translate') sendMessage('请把这段内容翻译成通顺的中文。');
+  else $('#chatInput').focus();
+});
 
-  const textEl = $('#selText');
-  textEl.classList.remove('expanded');
-  textEl.textContent = info.text;
-  // 内容超出 92px 才提示可展开，短选区不显示多余的箭头。
-  requestAnimationFrame(() => {
-    textEl.classList.toggle('clampable', textEl.scrollHeight > textEl.clientHeight + 2);
-  });
-
-  $('#selectionBar').classList.remove('hidden');
-  updateComposerHint();
-}
-
-function clearSelection() {
-  state.selection = '';
-  $('#selectionBar').classList.add('hidden');
-  updateComposerHint();
-}
-
-/** 选区变化 → 同步镜像。收起选区（点一下页面）时什么都不做：面板要留着，
-   否则「选中 → 挪一下鼠标 → 打字提问」这个最自然的流程会把引用弄丢。 */
-let selSyncTimer = null;
-function syncSelection() {
-  if (!state.paper) return;
-  const sel = window.getSelection();
-  if (!sel || !sel.rangeCount) return;
-  const anchor = sel.anchorNode;
-  const host = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
-  if (!host || !host.closest('#pageStack')) return;   // 在右侧/弹窗里选字，不动论文选区
-  if (sel.isCollapsed) return;                        // 收起只是「没在选」，保留上一次镜像
-
-  // 立刻读取，只把渲染交给防抖。等到定时器再读就晚了：这 120ms 里选区可能被别
-  // 的事情打散（例如正在懒加载的那一页布局到位、重建了文本层），那时读到的只是
-  // 一个空选区，镜像就永远追不上用户刚才选中的东西。
-  const info = readSelection(sel);
-  if (!info.text || info.text.trim().length < 2) return;
-  clearTimeout(selSyncTimer);
-  selSyncTimer = setTimeout(() => showSelection(info), 120);
-}
-
-document.addEventListener('selectionchange', syncSelection);
-
-// 复制时用重建后的文本（词之间有空格、段落之间空行），而不是浏览器给的裸串。
+document.addEventListener('mouseup', onMouseUp);
+document.addEventListener('mousedown', (e) => {
+  if (!e.target.closest('#selectionMenu')) hideSelMenu();
+});
 document.addEventListener('copy', (e) => {
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed) return;
   const anchor = sel.anchorNode;
   const host = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
   if (!host || !host.closest('#pageStack')) return;
-  const text = readSelection(sel).text;
+  const text = extractSelectionText(sel);
   if (text) e.clipboardData.setData('text/plain', text);
 });
 
-$('#selClear').addEventListener('click', clearSelection);
+function setQuote(text) {
+  state.selection = text;
+  $('#quoteText').textContent = text.length > 600 ? text.slice(0, 600) + '…' : text;
+  $('#quoteBar').classList.remove('hidden');
+}
 
-$('#selText').addEventListener('click', () => {
-  const el = $('#selText');
-  if (el.classList.contains('clampable') || el.classList.contains('expanded')) {
-    el.classList.toggle('expanded');
-  }
-});
-
-$('#selMeta').addEventListener('click', (e) => {
-  const btn = e.target.closest('.sel-jump');
-  if (btn) gotoPage(Number(btn.dataset.page));
+$('#quoteClear').addEventListener('click', () => {
+  state.selection = '';
+  $('#quoteBar').classList.add('hidden');
 });
 
 /* ══════════════════════════ 对话 ══════════════════════════ */
@@ -948,7 +888,8 @@ async function sendMessage(text) {
   autoGrow($('#chatInput'));
 
   const quote = state.selection;
-  clearSelection();   // 选区随这一条发出即消费掉，不会悄悄粘到下一问上
+  state.selection = '';
+  $('#quoteBar').classList.add('hidden');
 
   addMessageNode('user', message, quote);
   const assistant = addMessageNode('assistant', '');
@@ -1271,6 +1212,7 @@ function bind() {
   // 快捷键
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      hideSelMenu();
       if (state.focus) setFocus(state.focus);
       $$('.modal').forEach((m) => m.classList.add('hidden'));
       return;
