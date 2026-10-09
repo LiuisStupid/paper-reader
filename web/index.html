@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Paper Reader · 论文阅读器</title>
+<link rel="stylesheet" href="/static/style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>" />
+</head>
+<body>
+
+<!-- ══════════════════════════════ 顶栏 ══════════════════════════════ -->
+<header id="topbar">
+  <div class="brand" id="brandBtn" title="返回书库">
+    <span class="brand-mark">📖</span>
+    <span class="brand-name">Paper&nbsp;Reader</span>
+  </div>
+  <div class="top-center">
+    <input id="quickSearch" type="search" placeholder="搜索论文：标题 / 关键词 / 作者…" autocomplete="off" />
+    <button id="quickSearchBtn" class="btn primary">搜索</button>
+  </div>
+  <div class="top-right">
+    <button id="openLocalBtn" class="btn" title="打开本地 PDF">打开本地 PDF</button>
+    <button id="libraryBtn" class="btn" title="历史记录">书库</button>
+    <button id="settingsBtn" class="btn ghost" title="设置">设置</button>
+    <span id="llmBadge" class="badge" title="大模型状态">检测中…</span>
+  </div>
+</header>
+
+<!-- ══════════════════════════════ 书库 / 搜索 ══════════════════════════════ -->
+<main id="home">
+  <div class="home-head">
+    <h1>开始阅读</h1>
+    <p class="muted">打开本地 PDF，或按标题与关键词检索 arXiv / Semantic Scholar，边读边问。</p>
+    <div class="home-search">
+      <input id="homeSearch" type="search" placeholder="例如：attention is all you need / 图神经网络 / chain of thought" autocomplete="off" />
+      <select id="sourceSelect" title="检索来源">
+        <option value="all">全部来源</option>
+        <option value="arxiv">arXiv</option>
+        <option value="s2">Semantic Scholar</option>
+      </select>
+      <button id="homeSearchBtn" class="btn primary">搜索</button>
+    </div>
+    <div id="dropZone" class="dropzone">
+      也可以把 PDF 文件拖到这里，或
+      <button id="dropBrowseBtn" class="link">点击选择文件</button>
+      <span class="sep">·</span>
+      <button id="pathModalBtn" class="link">输入本地绝对路径</button>
+      <input id="fileInput" type="file" accept="application/pdf" multiple hidden />
+    </div>
+  </div>
+
+  <div id="searchProgress" class="progress hidden"><div class="bar"></div><span></span></div>
+
+  <section id="searchSection" class="hidden">
+    <div class="section-head">
+      <h2>搜索结果</h2>
+      <span id="searchMeta" class="muted"></span>
+    </div>
+    <div id="searchResults" class="results"></div>
+  </section>
+
+  <section id="historySection">
+    <div class="section-head">
+      <h2>历史记录</h2>
+      <input id="historyFilter" class="filter-input" type="search" placeholder="按标题 / 作者过滤" autocomplete="off" />
+      <span id="historyMeta" class="muted"></span>
+    </div>
+    <div id="historyList" class="results"></div>
+  </section>
+</main>
+
+<!-- ══════════════════════════════ 阅读器 ══════════════════════════════ -->
+<div id="reader" class="hidden">
+
+  <!-- ────────── 左：论文 ────────── -->
+  <section id="viewerPane">
+    <div class="pane-head">
+      <button id="backBtn" class="icon-btn" title="返回书库">←</button>
+      <div class="doc-title" id="docTitle">—</div>
+      <div class="pane-tools">
+        <div class="seg" id="langToggle">
+          <button data-lang="en" class="active">原文</button>
+          <button data-lang="zh">中文翻译</button>
+        </div>
+        <button id="translatePageBtn" class="btn small">翻译本页</button>
+        <button id="translateAllBtn" class="btn small">翻译全文</button>
+        <label class="check" title="滚动时自动翻译新出现的页面">
+          <input type="checkbox" id="autoTranslate" checked /> 自动
+        </label>
+        <span class="divider"></span>
+        <button id="zoomOutBtn" class="icon-btn" title="缩小">−</button>
+        <span id="zoomLabel" class="zoom-label">100%</span>
+        <button id="zoomInBtn" class="icon-btn" title="放大">+</button>
+        <button id="fitBtn" class="icon-btn" title="适应宽度">⤢</button>
+        <span class="divider"></span>
+        <button id="focusLeftBtn" class="icon-btn" title="全屏阅读（折叠对话）">⛶</button>
+      </div>
+    </div>
+    <div class="pane-sub">
+      <button id="prevBtn" class="icon-btn" title="上一页">◀</button>
+      <input id="pageInput" class="page-input" type="text" value="1" />
+      <span id="pageTotal" class="muted">/ 0</span>
+      <button id="nextBtn" class="icon-btn" title="下一页">▶</button>
+      <span id="viewerStatus" class="muted status"></span>
+    </div>
+    <div id="pageScroll" class="page-scroll">
+      <div id="pageStack" class="page-stack"></div>
+    </div>
+  </section>
+
+  <div id="splitter" title="拖动调整宽度"></div>
+
+  <!-- ────────── 右：AI 对话 ────────── -->
+  <section id="chatPane">
+    <div class="pane-head">
+      <button id="focusRightBtn" class="icon-btn" title="全屏对话（折叠论文）">⛶</button>
+      <div class="doc-title">AI 助手</div>
+      <div class="pane-tools">
+        <select id="modelSelect" class="model-select" title="模型"></select>
+        <label class="check" title="把整篇论文作为上下文（更慢，消耗更多 token）">
+          <input type="checkbox" id="fullTextToggle" /> 全文上下文
+        </label>
+        <button id="clearChatBtn" class="icon-btn" title="清空对话">🗑</button>
+      </div>
+    </div>
+
+    <div id="chatLog" class="chat-log">
+      <div class="chat-empty" id="chatEmpty">
+        <p>选中左侧论文中的任意文字，即可针对它提问；也可以直接在下方输入问题。</p>
+        <div class="quick-row">
+          <button class="chip" data-q="这篇论文要解决什么问题？主要贡献是什么？">这篇论文解决了什么问题？</button>
+          <button class="chip" data-q="请总结当前这一页的核心内容。">总结当前页</button>
+          <button class="chip" data-q="这篇论文的方法部分用到了哪些关键技术？">用了哪些关键技术？</button>
+          <button class="chip" data-q="这篇论文有什么局限性或可以改进的地方？">局限性与改进方向</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="quoteBar" class="quote-bar hidden">
+      <div class="quote-head">
+        <span>已引用选中内容</span>
+        <button id="quoteClear" class="icon-btn" title="取消引用">✕</button>
+      </div>
+      <div id="quoteText" class="quote-text"></div>
+      <div class="quote-actions">
+        <button class="chip small" data-q="这一段数据表示什么？">这一段数据表示什么？</button>
+        <button class="chip small" data-q="请解释这段内容的含义，并说明它在论文中的作用。">解释这段</button>
+        <button class="chip small" data-q="请把这段内容翻译成通顺的中文。">翻译这段</button>
+        <button class="chip small" data-q="这段内容和论文的核心论点有什么关系？">与主旨的关系</button>
+      </div>
+    </div>
+
+    <div class="composer">
+      <textarea id="chatInput" rows="1" placeholder="就这篇论文提问…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <button id="sendBtn" class="btn primary send">发送</button>
+    </div>
+  </section>
+</div>
+
+<!-- ══════════════════════════════ 选中浮动菜单 ══════════════════════════════ -->
+<div id="selectionMenu" class="sel-menu hidden">
+  <button data-act="explain">解释这段</button>
+  <button data-act="translate">翻译这段</button>
+  <button data-act="ask">问 AI…</button>
+</div>
+
+<!-- ══════════════════════════════ 设置弹窗 ══════════════════════════════ -->
+<div id="settingsModal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>大模型设置</h3>
+      <button class="icon-btn" data-close="settingsModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="muted small">默认使用 Anthropic 兼容接口（Claude Code CLI / DeepSeek 等网关均可）。本地 ollama、vLLM 请把协议切到 OpenAI 兼容。</p>
+      <label class="field"><span>Base URL</span>
+        <input id="setBaseUrl" type="text" placeholder="https://api.anthropic.com" />
+      </label>
+      <label class="field"><span>API Key / Auth Token</span>
+        <input id="setSecret" type="password" placeholder="sk-…（留空则不修改）" />
+      </label>
+      <div class="field-row">
+        <label class="field"><span>模型</span>
+          <input id="setModel" type="text" list="modelList" placeholder="deepseek-v4-flash" />
+          <datalist id="modelList"></datalist>
+        </label>
+        <label class="field"><span>协议</span>
+          <select id="setProtocol">
+            <option value="anthropic">Anthropic 兼容</option>
+            <option value="openai">OpenAI 兼容</option>
+          </select>
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="setThinking" /> 使用 thinking 开关（翻译时关闭思考以提速；公共 Anthropic API 请取消勾选）</label>
+      <div id="settingsResult" class="settings-result"></div>
+    </div>
+    <div class="modal-foot">
+      <button id="testLlmBtn" class="btn">测试连接</button>
+      <button id="saveSettingsBtn" class="btn primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════ 路径输入弹窗 ══════════════════════════════ -->
+<div id="pathModal" class="modal hidden">
+  <div class="modal-card small">
+    <div class="modal-head">
+      <h3>打开本地 PDF</h3>
+      <button class="icon-btn" data-close="pathModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="field"><span>文件绝对路径</span>
+        <input id="pathInput" type="text" placeholder="/Users/you/papers/xxx.pdf" />
+      </label>
+      <p class="muted small">浏览器无法直接读取任意路径，如果你不方便选择文件，可以在这里粘贴绝对路径。</p>
+    </div>
+    <div class="modal-foot">
+      <button id="pathOpenBtn" class="btn primary">打开</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<div id="overlayLoading" class="overlay hidden"><div class="spinner"></div><div id="overlayText">处理中…</div></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+fastapi>=0.110,<0.116
+uvicorn>=0.27,<0.35
+httpx>=0.26,<0.29
+PyMuPDF>=1.24,<1.26
+python-multipart>=0.0.9

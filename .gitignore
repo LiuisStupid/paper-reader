@@ -1,0 +1,8 @@
+# 运行时数据：书库数据库、下载的 PDF、翻译缓存、本地设置（可能含密钥）
+data/
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+.idea/
+.vscode/
