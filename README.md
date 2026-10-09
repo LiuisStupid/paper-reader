@@ -11,25 +11,43 @@
 
 ## 快速开始
 
-```bash
-python3 agent/boot.py
+在 Claude Code 里打开这个仓库，敲：
+
+```
+/paper-reader
 ```
 
-不需要建虚拟环境、不需要手动 `pip install`、不需要改配置、不需要第二条命令。
-`agent` 会按顺序做四件事：
+它按顺序做完四件事：
 
 | 步骤 | 做什么 | 失败时 |
 | --- | --- | --- |
 | 1 | 检查 Python ≥ 3.9 与 pip 是否可用 | 打印装 pip 的命令 |
 | 2 | 检查 `requirements.txt`，缺什么装什么（`pip install --user`，依次尝试阿里云 → 清华 → 官方源） | 报错并指出缺哪个包 |
 | 3 | **真连一次**大模型接口来探测可用配置，写入 `data/settings.json` | 不阻断启动，阅读/检索仍可用，界面里再配 |
-| 4 | 选空闲端口启动服务并打开浏览器 | — |
+| 4 | 常驻起服务、`curl` 验证、打开浏览器 | — |
 
-依赖就装在你跑脚本的那个解释器里（非虚拟环境时加 `--user`，落在
+**哪一步炸了它是当场修的**——换 pip 镜像、改代码、清缓存、重起，而不是把一段 traceback
+丢给你。这是把它做成 skill 而不是一个 python 脚本的全部理由。
+
+服务用 `nohup` 脱离会话，关掉 Claude 窗口之后照样在跑；下次进来说一声就能重启或停掉。
+
+### 没有 Claude Code 的环境
+
+同样四步，手动来一遍：
+
+```bash
+python3 -m agent.deps                       # 检查并安装缺失依赖
+python3 -m agent.detect --save              # 探测可用的大模型接口并记下来
+nohup python3 -m uvicorn server.main:app \
+      --host 127.0.0.1 --port 8765 \
+      --log-level warning --no-access-log \
+      > data/server.log 2>&1 &
+curl -sf http://127.0.0.1:8765/api/health   # 验证
+```
+
+不建虚拟环境：依赖直接装进你跑命令的那个解释器（非 venv 时加 `--user`，落在
 `~/Library/Python/3.x/lib/python/site-packages`，不碰系统目录、不需要 sudo）。
 要卸掉：`python3 -m pip uninstall fastapi uvicorn httpx PyMuPDF python-multipart`。
-
-常用参数：`--port 8765`、`--host`、`--no-browser`、`--check`（只检测不启动）、`--recheck-api`。
 
 ---
 
@@ -41,7 +59,7 @@ python3 agent/boot.py
 - **一个大模型接口**，三选一即可：Anthropic 兼容网关（含 Claude Code CLI 的配置）、
   环境变量里给好的 `ANTHROPIC_*`、或本地 ollama / vLLM。探测顺序见下节。
 
-依赖只有 5 个：FastAPI、uvicorn、httpx、PyMuPDF、python-multipart，`agent/deps.py` 会自动装。
+依赖只有 5 个：FastAPI、uvicorn、httpx、PyMuPDF、python-multipart，`python3 -m agent.deps` 会检查并按需装上。
 
 ---
 
@@ -105,7 +123,10 @@ python3 agent/boot.py
 ## 目录结构
 
 ```
-agent/      内置 agent：boot.py（入口）· detect.py（API 探测）· deps.py（依赖安装）
+.claude/skills/paper-reader/
+            启动与排错的 skill（`/paper-reader`）——编排、故障手册都在这里
+agent/      deps.py（依赖检查/安装）· detect.py（大模型探测）
+            两者都能单独跑：`python3 -m agent.deps` / `python3 -m agent.detect`
 server/     FastAPI 后端
   ├ main.py       HTTP 路由
   ├ pdf.py        PyMuPDF：渲染页面、逐词文本层、段落切分、标题识别

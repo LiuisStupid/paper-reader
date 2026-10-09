@@ -1,7 +1,8 @@
 """FastAPI application: the paper reader's HTTP surface.
 
-Run it via `agent/boot.py` (which handles API detection, dependency install and
-launching) rather than by hand.
+后台进程，不直接对外暴露启动方式：正常路径是在 Claude Code 里跑 `/paper-reader`
+skill（它会先体检依赖、探大模型，再用 uvicorn 把这个 app 拉起来）。
+手动起就是 `python3 -m uvicorn server.main:app --host 127.0.0.1 --port 8765`。
 """
 from __future__ import annotations
 

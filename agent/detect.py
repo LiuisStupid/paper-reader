@@ -10,14 +10,17 @@ Probes, in priority order:
 Every candidate is *live-tested* with a tiny completion before being accepted,
 so a stale key or a dead local server is skipped rather than silently used.
 
-Implemented on stdlib `urllib` only: this module must run before dependencies
-are installed, when the bootstrapper is still deciding what to install.
+Implemented on stdlib `urllib` only: this module has to run *before* the deps in
+`agent/deps.py` are installed, so it cannot import httpx.
+
+入口：`python3 -m agent.detect [--save]`。
 """
 from __future__ import annotations
 
 import json
 import os
 import socket
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -244,3 +247,66 @@ def detect(verbose: bool = True) -> Optional[Dict[str, Any]]:
         if verbose:
             print("    ✗ %s" % (err or "无法连接"))
     return None
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """CLI：`python3 -m agent.detect [--save] [--json]`。
+
+    非 0 退出码表示一个能用的接口都没探到，调用方（skill）据此转入人工配置，
+    而不是硬编一个 base_url 进去。
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="探测可用的大模型接口")
+    parser.add_argument("--save", action="store_true", help="探到的配置写入 data/settings.json")
+    parser.add_argument("--json", action="store_true", help="以 JSON 输出（默认人话）")
+    args = parser.parse_args(argv)
+
+    cfg = detect(verbose=not args.json)
+    if not cfg:
+        if args.json:
+            print(json.dumps({"ok": False}, ensure_ascii=False))
+        else:
+            print("✗ 没有探测到可用的大模型接口")
+        return 1
+
+    saved = False
+    if args.save:
+        # 复用 server/config.py 里的写入逻辑，避免 settings.json 的字段和路径
+        # 在两个地方各维护一份。
+        sys.path.insert(0, str(ROOT))
+        from server.config import save_settings_file
+
+        patch = {
+            "base_url": cfg["base_url"],
+            "model": cfg["model"],
+            "protocol": cfg.get("protocol", "anthropic"),
+        }
+        if cfg.get("auth_token"):
+            patch["auth_token"] = cfg["auth_token"]
+        if cfg.get("api_key"):
+            patch["api_key"] = cfg["api_key"]
+        if "supports_thinking_toggle" in cfg:
+            patch["supports_thinking_toggle"] = bool(cfg["supports_thinking_toggle"])
+        save_settings_file(patch)
+        saved = True
+
+    if args.json:
+        # 只输出非敏感字段：这个结果可能会被打印进对话记录。
+        print(json.dumps(
+            {
+                "ok": True,
+                "base_url": cfg["base_url"],
+                "model": cfg["model"],
+                "protocol": cfg.get("protocol", "anthropic"),
+                "saved": saved,
+            },
+            ensure_ascii=False,
+        ))
+    elif saved:
+        print("✓ 已写入 data/settings.json")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

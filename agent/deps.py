@@ -6,8 +6,9 @@ Runs before anything else, so it may only use the standard library.
 非 venv 的解释器一律加 `--user`，装到用户目录而不是系统 site-packages，
 所以既不需要 sudo，也不会污染 Homebrew / 发行版自带的 Python。
 
-这样 `python3 agent/boot.py` 就真的是唯一一条命令；多一层 venv 只会多一个
-要解释、要清理、还要在文档里写两遍的解释器。
+入口是 `python3 -m agent.deps`（CLI 在本文件末尾），也可以被
+`.claude/skills/paper-reader` 直接调用；多一层 venv 只会多一个要解释、要清理、
+还要在文档里写两遍的解释器。
 """
 from __future__ import annotations
 
@@ -165,3 +166,34 @@ def preflight(verbose: bool = True) -> Tuple[bool, str]:
     if still:
         return False, "安装后仍缺少：%s" % ", ".join(p for _m, p, _w in still)
     return True, "依赖已安装完成"
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """CLI：`python3 -m agent.deps [--check]`。退出码非 0 表示依赖没齐。"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="检查 / 安装 Paper Reader 的依赖")
+    parser.add_argument("--check", action="store_true", help="只检查，不安装")
+    args = parser.parse_args(argv)
+
+    ok, message = check_interpreter()
+    if not ok:
+        print("✗ %s" % message)
+        return 1
+    print("· 解释器：%s" % message)
+
+    if args.check:
+        gone = missing()
+        if gone:
+            print("· 缺少 %d 个依赖：%s" % (len(gone), ", ".join(p for _m, p, _w in gone)))
+            return 1
+        print("· 依赖完整")
+        return 0
+
+    ok, message = preflight(verbose=True)
+    print("%s %s" % ("✓" if ok else "✗", message))
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

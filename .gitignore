@@ -1,6 +1,8 @@
 # 运行时数据：书库数据库、下载的 PDF、翻译缓存、本地设置（可能含密钥）
 data/
 .venv/
+# Claude Code 的本机个人配置（权限白名单等），不该进仓库
+.claude/settings.local.json
 __pycache__/
 *.py[cod]
 .DS_Store

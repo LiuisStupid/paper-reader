@@ -1,20 +1,29 @@
 # CLAUDE.md
 
 论文阅读器：左侧服务端渲染的 PDF（带逐词可选文本层），右侧 AI 对话。启动入口是
-`agent/boot.py`，它把环境检测、依赖安装、大模型探测、服务启动全包了。
+skill `.claude/skills/paper-reader/SKILL.md`——没有 `boot.py` 这种一键脚本了，
+编排（体检 → 装依赖 → 探大模型 → 起服务 → 验证）全在 skill 里，为的是出错时
+能在对话里当场读报错、改代码、重启。
 
 ## 启动 / 验证
 
 ```bash
-python3 agent/boot.py                 # 唯一入口；查 Python/pip、装依赖、探 API、开浏览器
-python3 agent/boot.py --check         # 只检测不启动
-python3 agent/boot.py --no-browser --port 8765   # 依赖已装好、不想再探测 API 时
+/paper-reader                        # 唯一的启动入口
+
+python3 -m agent.deps                # 光体检+装依赖（--check 只看不装）
+python3 -m agent.detect              # 光探大模型（--save 写进 data/settings.json）
 ```
 
-**不建虚拟环境**：依赖直接装进跑脚本的那个解释器（非 venv 时 `pip install --user`，
-落用户目录、不需要 sudo）。别把 venv 逻辑加回 `deps.py`，也别在文档里写
-`.venv/bin/python`。注意本机 `which python3` 可能命中别的项目的 venv，怀疑装错地方时
-看 boot 第 1 步打印的解释器路径。
+服务由 skill 用 `nohup` 常驻起在 `127.0.0.1`，PID 在 `data/server.pid`、
+日志在 `data/server.log`（`--log-level warning`，只留问题）。所以排错第一步是
+`tail -40 data/server.log`，别猜。
+
+几条别踩的：
+
+- **不建虚拟环境**。依赖直接装进跑命令的那个解释器（非 venv 时 `pip install --user`，
+  落用户目录、不需要 sudo）。别把 venv 逻辑加回 `deps.py`。
+- 本机 `which python3` 会命中**别的项目的 venv**，所以一律显式用 `/usr/bin/python3`。
+- 只绑 `127.0.0.1`；`data/settings.json` 里有明文密钥，别粘进对话或提交。
 
 改完后端重启即可；前端是原生 JS，刷新浏览器就行（无构建步骤）。
 
@@ -58,9 +67,12 @@ python3 agent/boot.py --no-browser --port 8765   # 依赖已装好、不想再�
 ## 结构
 
 ```
-agent/boot.py     入口：venv → deps → detect LLM → uvicorn
+.claude/skills/paper-reader/SKILL.md
+                  启动入口 + 排错手册；改启动流程就改这里
 agent/detect.py   候选端点（已存设置 → 环境变量 → Claude CLI 配置 → 本地运行时）逐个真连验证
-agent/deps.py     venv 创建 / requirements 检测安装 / 切换解释器
+                  可单独跑：python3 -m agent.detect [--save]
+agent/deps.py     requirements 检测安装（含镜像降级 / PEP 668 兜底），不建 venv
+                  可单独跑：python3 -m agent.deps [--check]
 server/main.py    HTTP 路由（29 条）
 server/pdf.py     PyMuPDF：渲染、逐词文本层、段落合并、标题识别（按字号而非首行）
 server/llm.py     Anthropic + OpenAI 双协议流式客户端，事件归一化为 thinking/text/done/error
